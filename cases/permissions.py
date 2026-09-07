@@ -4,14 +4,22 @@ from accounts.models import User, UserVerification
 
 
 class CaseAccessPermission(BasePermission):
+    """
+    Case access policy.
+
+    Admins have full access.
+    Verified police officers and investigators can view cases and manage
+    assignment fields. They may also update status according to the existing
+    case workflow.
+    Legal officers have read-only access to cases.
+    Normal users can only create a case from an allowed workflow and view
+    their own case records where applicable.
+    """
 
     def has_permission(self, request, view):
         user = request.user
 
-        if not user or not user.is_authenticated:
-            return False
-
-        if not user.is_active:
+        if not user or not user.is_authenticated or not user.is_active:
             return False
 
         role = user.role
@@ -24,10 +32,7 @@ class CaseAccessPermission(BasePermission):
             return action == "create" and request.method == "POST"
 
         if role == User.Role.POLICE_OFFICER:
-            if not self._is_verified_staff(user):
-                return False
-
-            return action in [
+            return self._is_verified_staff(user) and action in [
                 "list",
                 "retrieve",
                 "create",
@@ -37,22 +42,17 @@ class CaseAccessPermission(BasePermission):
             ]
 
         if role == User.Role.INVESTIGATOR:
-            if not self._is_verified_staff(user):
-                return False
-
-            return action in [
+            return self._is_verified_staff(user) and action in [
                 "list",
                 "retrieve",
+                "create",
                 "case_history",
                 "update_status",
                 "partial_update",
             ]
 
         if role == User.Role.LEGAL_OFFICER:
-            if not self._is_verified_staff(user):
-                return False
-
-            return action in [
+            return self._is_verified_staff(user) and action in [
                 "list",
                 "retrieve",
                 "case_history",
@@ -63,10 +63,7 @@ class CaseAccessPermission(BasePermission):
     def has_object_permission(self, request, view, obj):
         user = request.user
 
-        if not user or not user.is_authenticated:
-            return False
-
-        if not user.is_active:
+        if not user or not user.is_authenticated or not user.is_active:
             return False
 
         role = user.role
@@ -86,17 +83,12 @@ class CaseAccessPermission(BasePermission):
             if not self._is_verified_staff(user):
                 return False
 
-            if obj.assigned_officer_id != user.id:
-                return False
-
             if action in ["retrieve", "case_history"]:
                 return request.method in ["GET", "HEAD", "OPTIONS"]
 
             if action == "update_status":
                 return request.method == "POST"
 
-            # Police officers may update assignment fields on cases
-            # they are currently assigned to.
             if action == "partial_update":
                 return request.method == "PATCH"
 
@@ -106,17 +98,12 @@ class CaseAccessPermission(BasePermission):
             if not self._is_verified_staff(user):
                 return False
 
-            if obj.assigned_investigator_id != user.id:
-                return False
-
             if action in ["retrieve", "case_history"]:
                 return request.method in ["GET", "HEAD", "OPTIONS"]
 
             if action == "update_status":
                 return request.method == "POST"
 
-            # Investigators may update assignment fields on cases
-            # they are currently assigned to.
             if action == "partial_update":
                 return request.method == "PATCH"
 
@@ -134,7 +121,6 @@ class CaseAccessPermission(BasePermission):
         return False
 
     def _is_verified_staff(self, user):
-        """Check whether a staff user has been verified."""
         if user.role == User.Role.ADMIN:
             return True
 

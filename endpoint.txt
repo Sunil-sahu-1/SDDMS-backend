@@ -1,0 +1,187 @@
+============================================================
+LAW ENFORCEMENT DMS
+API ENDPOINTS
+============================================================
+
+BASE URL
+http://127.0.0.1:8000
+
+
+============================================================
+1. ACCOUNTS
+============================================================
+
+POST   /api/accounts/register/
+GET    /api/accounts/me/
+GET    /api/accounts/staff-test/
+GET    /api/accounts/police-test/
+GET    /api/accounts/investigator-test/
+GET    /api/accounts/legal-test/
+GET    /api/accounts/admin-test/
+
+
+============================================================
+2. CASES
+============================================================
+
+GET    /api/cases/
+POST   /api/cases/
+GET    /api/cases/<id>/
+PUT    /api/cases/<id>/
+PATCH  /api/cases/<id>/
+DELETE /api/cases/<id>/
+
+
+============================================================
+3. COMPLAINTS
+============================================================
+
+GET    /api/complaints/
+POST   /api/complaints/
+GET    /api/complaints/<id>/
+PUT    /api/complaints/<id>/
+PATCH  /api/complaints/<id>/
+DELETE /api/complaints/<id>/
+
+
+============================================================
+4. DOCUMENTS
+============================================================
+
+GET    /api/documents/
+POST   /api/documents/
+GET    /api/documents/<id>/
+PUT    /api/documents/<id>/
+PATCH  /api/documents/<id>/
+DELETE /api/documents/<id>/
+
+GET    /api/documents/<id>/download/
+GET    /api/documents/<id>/versions/
+POST   /api/documents/<id>/new-version/
+GET    /api/documents/<id>/verify-integrity/
+
+
+============================================================
+5. EVIDENCE
+============================================================
+
+GET    /api/evidence/
+POST   /api/evidence/
+GET    /api/evidence/<id>/
+PUT    /api/evidence/<id>/
+PATCH  /api/evidence/<id>/
+DELETE /api/evidence/<id>/
+
+GET    /api/evidence/<id>/download/
+GET    /api/evidence/<id>/verify-integrity/
+
+
+============================================================
+6. WITNESS STATEMENTS
+============================================================
+
+GET    /api/evidence/witness-statements/
+POST   /api/evidence/witness-statements/
+GET    /api/evidence/witness-statements/<id>/
+PUT    /api/evidence/witness-statements/<id>/
+PATCH  /api/evidence/witness-statements/<id>/
+DELETE /api/evidence/witness-statements/<id>/
+
+
+============================================================
+7. LEGAL REVIEWS
+============================================================
+
+GET    /api/legal/reviews/
+POST   /api/legal/reviews/
+GET    /api/legal/reviews/<id>/
+PUT    /api/legal/reviews/<id>/
+PATCH  /api/legal/reviews/<id>/
+DELETE /api/legal/reviews/<id>/
+
+POST   /api/legal/reviews/<id>/approve/
+POST   /api/legal/reviews/<id>/reject/
+
+
+============================================================
+8. COURT HEARINGS
+============================================================
+
+GET    /api/legal/hearings/
+POST   /api/legal/hearings/
+GET    /api/legal/hearings/<id>/
+PUT    /api/legal/hearings/<id>/
+PATCH  /api/legal/hearings/<id>/
+DELETE /api/legal/hearings/<id>/
+
+POST   /api/legal/hearings/<id>/complete/
+
+
+============================================================
+9. AUDIT LOGS
+============================================================
+
+GET    /api/audit/
+GET    /api/audit/<id>/
+GET    /api/audit/verify-integrity/
+
+
+============================================================
+10. ADMIN USER MANAGEMENT
+============================================================
+
+GET    /api/accounts/admin/users/
+POST   /api/accounts/admin/users/
+GET    /api/accounts/admin/users/<id>/
+PUT    /api/accounts/admin/users/<id>/
+PATCH  /api/accounts/admin/users/<id>/
+DELETE /api/accounts/admin/users/<id>/
+
+
+============================================================
+11. USER VERIFICATION
+============================================================
+
+POST   /api/accounts/verification/submit/
+GET    /api/accounts/verification/
+GET    /api/accounts/verification/<id>/
+
+POST   /api/accounts/verification/<id>/approve/
+POST   /api/accounts/verification/<id>/reject/
+
+
+============================================================
+12. DIGITAL SIGNATURE
+============================================================
+
+POST   /api/documents/<id>/sign/
+GET    /api/documents/<id>/signature/
+GET    /api/documents/<id>/verify-signature/
+
+
+============================================================
+13. AI
+============================================================
+
+POST   /api/ai/
+POST   /api/ai/analyze/
+POST   /api/ai/summarize/
+POST   /api/ai/classify/
+POST   /api/ai/extract/
+
+
+============================================================
+14. DASHBOARD
+============================================================
+
+GET    /api/dashboard/
+GET    /api/dashboard/statistics/
+GET    /api/dashboard/cases/
+GET    /api/dashboard/evidence/
+GET    /api/dashboard/documents/
+GET    /api/dashboard/hearings/
+
+
+============================================================
+END
+============================================================

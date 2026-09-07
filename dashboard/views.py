@@ -109,6 +109,13 @@ class AdminDashboardView(APIView):
                 .values_list("status", "count")
             )
 
+        def role_counts(queryset):
+            return dict(
+                queryset.values("role")
+                .annotate(count=Count("id"))
+                .values_list("role", "count")
+            )
+
         case_status = status_counts(cases_qs)
         investigation_status = status_counts(investigations_qs)
         complaint_status = status_counts(complaints_qs)
@@ -123,7 +130,7 @@ class AdminDashboardView(APIView):
             user_qs = User.objects.filter(pk=user.pk)
 
         verification_status = status_counts(verification_qs)
-        user_roles = status_counts(user_qs)
+        user_roles = role_counts(user_qs)
         audit_actions = dict(
             audit_qs.values("action")
             .annotate(count=Count("id"))

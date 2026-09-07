@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.db import transaction
 
 from rest_framework import status, viewsets
@@ -7,30 +8,18 @@ from rest_framework.response import Response
 from audit.utils import create_audit_log
 
 from .models import Case, CaseHistory
-from .serializers import (
-    CaseSerializer,
-    CaseHistorySerializer,
-)
+from .serializers import CaseSerializer, CaseHistorySerializer
 from .permissions import CaseAccessPermission
 
 
 class CaseViewSet(viewsets.ModelViewSet):
-
     serializer_class = CaseSerializer
-
-    permission_classes = [
-        CaseAccessPermission,
-    ]
+    permission_classes = [CaseAccessPermission]
 
     def get_queryset(self):
-
         user = self.request.user
 
-        if (
-            not user
-            or not user.is_authenticated
-            or not user.is_active
-        ):
+        if not user or not user.is_authenticated or not user.is_active:
             return Case.objects.none()
 
         queryset = (
@@ -42,9 +31,7 @@ class CaseViewSet(viewsets.ModelViewSet):
                 "assigned_legal_officer",
                 "created_by",
             )
-            .prefetch_related(
-                "history__changed_by",
-            )
+            .prefetch_related("history__changed_by")
             .order_by("-created_at")
         )
 
@@ -52,48 +39,25 @@ class CaseViewSet(viewsets.ModelViewSet):
             return queryset
 
         if user.role == "NORMAL_USER":
-            return queryset.filter(
-                complainant=user,
-            )
+            return queryset.filter(complainant=user)
 
         if user.role == "POLICE_OFFICER":
-            return queryset.filter(
-                assigned_officer=user,
-            )
+            return queryset.filter(assigned_officer=user)
 
         if user.role == "INVESTIGATOR":
-            return queryset.filter(
-                assigned_investigator=user,
-            )
+            return queryset.filter(assigned_investigator=user)
 
         if user.role == "LEGAL_OFFICER":
-            return queryset.filter(
-                assigned_legal_officer=user,
-            )
+            return queryset.filter(assigned_legal_officer=user)
 
         return Case.objects.none()
 
     @transaction.atomic
-    def create(
-        self,
-        request,
-        *args,
-        **kwargs,
-    ):
-
-        serializer = self.get_serializer(
-            data=request.data,
-        )
-
-        serializer.is_valid(
-            raise_exception=True,
-        )
-
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-
-        headers = self.get_success_headers(
-            serializer.data,
-        )
+        headers = self.get_success_headers(serializer.data)
 
         return Response(
             {
@@ -105,11 +69,7 @@ class CaseViewSet(viewsets.ModelViewSet):
             headers=headers,
         )
 
-    def perform_create(
-        self,
-        serializer,
-    ):
-
+    def perform_create(self, serializer):
         case = serializer.save(
             complainant=self.request.user,
             created_by=self.request.user,
@@ -134,177 +94,235 @@ class CaseViewSet(viewsets.ModelViewSet):
             },
         )
 
-    def update(
-        self,
-        request,
-        *args,
-        **kwargs,
-    ):
-
+    def update(self, request, *args, **kwargs):
         if request.user.role != "ADMIN":
             return Response(
                 {
                     "success": False,
+                    "message": "Only administrators can update cases.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return super().update(request, *args, **kwargs)
+
+    @transaction.atomic
+    def partial_update(self, request, *args, **kwargs):
+        """
+        Admins can partially update any case.
+
+        Verified police officers and investigators can partially update
+        only the case assignment fields, and only on cases currently
+        assigned to them.
+        """
+        role = request.user.role
+
+        if role == "ADMIN":
+            return super().partial_update(request, *args, **kwargs)
+
+        if role not in ["POLICE_OFFICER", "INVESTIGATOR"]:
+            return Response(
+                {
+                    "success": False,
                     "message": (
-                        "Only administrators can "
-                        "update cases."
+                        "Only administrators, police officers, and "
+                        "investigators can change case assignments."
                     ),
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        return super().update(
-            request,
-            *args,
-            **kwargs,
-        )
+        allowed_fields = {
+            "assigned_officer",
+            "assigned_investigator",
+        }
+        submitted_fields = set(request.data.keys())
+        invalid_fields = submitted_fields - allowed_fields
 
-    def partial_update(
-        self,
-        request,
-        *args,
-        **kwargs,
-    ):
-
-        if request.user.role != "ADMIN":
+        if invalid_fields:
             return Response(
                 {
                     "success": False,
                     "message": (
-                        "Only administrators can "
-                        "update cases."
+                        "Police officers and investigators may update "
+                        "only assigned officer and assigned investigator."
                     ),
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        return super().partial_update(
-            request,
-            *args,
-            **kwargs,
-        )
-
-    def destroy(
-        self,
-        request,
-        *args,
-        **kwargs,
-    ):
-
-        if request.user.role != "ADMIN":
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Only administrators can "
-                        "delete cases."
-                    ),
+                    "invalid_fields": sorted(invalid_fields),
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         case = self.get_object()
+        User = get_user_model()
 
+        for field in allowed_fields.intersection(submitted_fields):
+            raw_value = request.data.get(field)
+
+            if raw_value in [None, "", "null"]:
+                continue
+
+            try:
+                selected_user = User.objects.get(
+                    id=raw_value,
+                    is_active=True,
+                )
+            except (User.DoesNotExist, ValueError, TypeError):
+                return Response(
+                    {
+                        "success": False,
+                        "message": f"Selected {field.replace('_', ' ')} was not found.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            expected_role = (
+                "POLICE_OFFICER"
+                if field == "assigned_officer"
+                else "INVESTIGATOR"
+            )
+
+            if selected_user.role != expected_role:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            f"Selected user must have the {expected_role} role."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                verification = selected_user.verification
+            except Exception:
+                verification = None
+
+            if (
+                verification is None
+                or verification.status != "VERIFIED"
+            ):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Selected staff member is not verified.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        old_officer = case.assigned_officer_id
+        old_investigator = case.assigned_investigator_id
+
+        serializer = self.get_serializer(
+            case,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        case.refresh_from_db()
+
+        changed = []
+        if old_officer != case.assigned_officer_id:
+            changed.append(
+                f"assigned officer to {case.assigned_officer.get_full_name() or case.assigned_officer.username if case.assigned_officer else 'none'}"
+            )
+        if old_investigator != case.assigned_investigator_id:
+            changed.append(
+                f"assigned investigator to {case.assigned_investigator.get_full_name() or case.assigned_investigator.username if case.assigned_investigator else 'none'}"
+            )
+
+        if changed:
+            comment = "Case assignment updated: " + ", ".join(changed) + "."
+            CaseHistory.objects.create(
+                case=case,
+                changed_by=request.user,
+                old_status=case.status,
+                new_status=case.status,
+                comment=comment,
+            )
+
+            create_audit_log(
+                request=request,
+                action="ASSIGN",
+                case=case,
+                description="Case personnel assignment updated.",
+                metadata={
+                    "case_number": case.case_number,
+                    "assigned_officer": case.assigned_officer_id,
+                    "assigned_investigator": case.assigned_investigator_id,
+                },
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Case assignment updated successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role != "ADMIN":
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only administrators can delete cases.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        case = self.get_object()
         create_audit_log(
             request=request,
             action="DELETE",
             case=case,
             description="Case deleted.",
-            metadata={
-                "case_number": case.case_number,
-            },
+            metadata={"case_number": case.case_number},
         )
 
-        return super().destroy(
-            request,
-            *args,
-            **kwargs,
-        )
+        return super().destroy(request, *args, **kwargs)
 
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="assign-legal",
-    )
+    @action(detail=True, methods=["post"], url_path="assign-legal")
     @transaction.atomic
-    def assign_legal(
-        self,
-        request,
-        pk=None,
-    ):
-
+    def assign_legal(self, request, pk=None):
         if request.user.role != "ADMIN":
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Only administrators can "
-                        "assign cases to legal officers."
-                    ),
+                    "message": "Only administrators can assign cases to legal officers.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         case = self.get_object()
-
-        legal_officer_id = request.data.get(
-            "legal_officer",
-        )
+        legal_officer_id = request.data.get("legal_officer")
 
         if not legal_officer_id:
             return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Legal officer ID is required."
-                    ),
-                },
+                {"success": False, "message": "Legal officer ID is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        from django.contrib.auth import get_user_model
-
         User = get_user_model()
-
         try:
-            legal_officer = User.objects.get(
-                id=legal_officer_id,
-                is_active=True,
-            )
+            legal_officer = User.objects.get(id=legal_officer_id, is_active=True)
         except User.DoesNotExist:
             return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Legal officer not found."
-                    ),
-                },
+                {"success": False, "message": "Legal officer not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         if legal_officer.role != "LEGAL_OFFICER":
             return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Selected user is not a legal officer."
-                    ),
-                },
+                {"success": False, "message": "Selected user is not a legal officer."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        previous_officer = (
-            case.assigned_legal_officer
-        )
-
+        previous_officer = case.assigned_legal_officer
         case.assigned_legal_officer = legal_officer
-
-        case.save(
-            update_fields=[
-                "assigned_legal_officer",
-                "updated_at",
-            ],
-        )
+        case.save(update_fields=["assigned_legal_officer", "updated_at"])
 
         CaseHistory.objects.create(
             case=case,
@@ -321,91 +339,50 @@ class CaseViewSet(viewsets.ModelViewSet):
             request=request,
             action="ASSIGN",
             case=case,
-            description=(
-                "Case assigned to legal officer."
-            ),
+            description="Case assigned to legal officer.",
             metadata={
                 "case_number": case.case_number,
-                "previous_legal_officer": (
-                    previous_officer.id
-                    if previous_officer
-                    else None
-                ),
+                "previous_legal_officer": previous_officer.id if previous_officer else None,
                 "legal_officer": legal_officer.id,
-                "legal_officer_name": (
-                    legal_officer.get_full_name()
-                    or legal_officer.username
-                ),
+                "legal_officer_name": legal_officer.get_full_name() or legal_officer.username,
             },
         )
 
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Case assigned to legal officer "
-                    "successfully."
-                ),
-                "data": CaseSerializer(
-                    case,
-                    context={
-                        "request": request,
-                    },
-                ).data,
+                "message": "Case assigned to legal officer successfully.",
+                "data": CaseSerializer(case, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )
 
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="remove-legal",
-    )
+    @action(detail=True, methods=["post"], url_path="remove-legal")
     @transaction.atomic
-    def remove_legal(
-        self,
-        request,
-        pk=None,
-    ):
-
+    def remove_legal(self, request, pk=None):
         if request.user.role != "ADMIN":
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Only administrators can "
-                        "remove legal assignment."
-                    ),
+                    "message": "Only administrators can remove legal assignment.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         case = self.get_object()
-
-        previous_officer = (
-            case.assigned_legal_officer
-        )
+        previous_officer = case.assigned_legal_officer
 
         if not previous_officer:
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "No legal officer is assigned "
-                        "to this case."
-                    ),
+                    "message": "No legal officer is assigned to this case.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         case.assigned_legal_officer = None
-
-        case.save(
-            update_fields=[
-                "assigned_legal_officer",
-                "updated_at",
-            ],
-        )
+        case.save(update_fields=["assigned_legal_officer", "updated_at"])
 
         CaseHistory.objects.create(
             case=case,
@@ -422,70 +399,37 @@ class CaseViewSet(viewsets.ModelViewSet):
             request=request,
             action="UNASSIGN",
             case=case,
-            description=(
-                "Legal officer assignment removed."
-            ),
+            description="Legal officer assignment removed.",
             metadata={
                 "case_number": case.case_number,
-                "previous_legal_officer": (
-                    previous_officer.id
-                ),
+                "previous_legal_officer": previous_officer.id,
             },
         )
 
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Legal officer assignment "
-                    "removed successfully."
-                ),
-                "data": CaseSerializer(
-                    case,
-                    context={
-                        "request": request,
-                    },
-                ).data,
+                "message": "Legal officer assignment removed successfully.",
+                "data": CaseSerializer(case, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )
 
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="update-status",
-    )
+    @action(detail=True, methods=["post"], url_path="update-status")
     @transaction.atomic
-    def update_status(
-        self,
-        request,
-        pk=None,
-    ):
-
+    def update_status(self, request, pk=None):
         case = self.get_object()
+        new_status = request.data.get("status")
+        comment = request.data.get("comment", "")
 
-        new_status = request.data.get(
-            "status",
-        )
-
-        comment = request.data.get(
-            "comment",
-            "",
-        )
-
-        valid_statuses = {
-            value
-            for value, label in Case.Status.choices
-        }
+        valid_statuses = {value for value, label in Case.Status.choices}
 
         if new_status not in valid_statuses:
             return Response(
                 {
                     "success": False,
                     "message": "Invalid case status.",
-                    "valid_statuses": list(
-                        valid_statuses
-                    ),
+                    "valid_statuses": list(valid_statuses),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -496,22 +440,13 @@ class CaseViewSet(viewsets.ModelViewSet):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Case already has "
-                        "this status."
-                    ),
+                    "message": "Case already has this status.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         case.status = new_status
-
-        case.save(
-            update_fields=[
-                "status",
-                "updated_at",
-            ],
-        )
+        case.save(update_fields=["status", "updated_at"])
 
         CaseHistory.objects.create(
             case=case,
@@ -526,42 +461,21 @@ class CaseViewSet(viewsets.ModelViewSet):
             action="UPDATE",
             case=case,
             description="Case status updated.",
-            metadata={
-                "old_status": old_status,
-                "new_status": new_status,
-            },
+            metadata={"old_status": old_status, "new_status": new_status},
         )
 
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Case status updated "
-                    "successfully."
-                ),
-                "data": CaseSerializer(
-                    case,
-                    context={
-                        "request": request,
-                    },
-                ).data,
+                "message": "Case status updated successfully.",
+                "data": CaseSerializer(case, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )
 
-    @action(
-        detail=True,
-        methods=["get"],
-        url_path="history",
-    )
-    def case_history(
-        self,
-        request,
-        pk=None,
-    ):
-
+    @action(detail=True, methods=["get"], url_path="history")
+    def case_history(self, request, pk=None):
         case = self.get_object()
-
         history = case.history.all()
 
         create_audit_log(
@@ -574,16 +488,11 @@ class CaseViewSet(viewsets.ModelViewSet):
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Case history retrieved "
-                    "successfully."
-                ),
+                "message": "Case history retrieved successfully.",
                 "data": CaseHistorySerializer(
                     history,
                     many=True,
-                    context={
-                        "request": request,
-                    },
+                    context={"request": request},
                 ).data,
             },
             status=status.HTTP_200_OK,

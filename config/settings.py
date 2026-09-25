@@ -8,12 +8,17 @@ from pathlib import Path
 import os
 from datetime import timedelta
 
+from dotenv import load_dotenv
+
 
 # ============================================================
 # BASE DIRECTORY
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load local development environment variables from BASE_DIR/.env.
+load_dotenv(BASE_DIR / ".env")
 
 
 # ============================================================
@@ -124,14 +129,13 @@ TEMPLATES = [
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "sddms",
-        "USER": "postgres",
-        "PASSWORD": "Sunilsahu15",
-        "HOST": "127.0.0.1",
-        "PORT": "5432",
+        "NAME": os.getenv("DB_NAME", "sddms"),
+        "USER": os.getenv("DB_USER", "postgres"),
+        "PASSWORD": os.getenv("DB_PASSWORD", ""),
+        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
-
 
 
 AUTH_USER_MODEL = "accounts.User"
